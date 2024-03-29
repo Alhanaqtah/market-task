@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"market/internal/models"
 
@@ -26,7 +27,7 @@ func New(connStr string) (*Storage, error) {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	_, err = conn.Exec(context.Background(),
+	/* _, err = conn.Exec(context.Background(),
 		`
 	CREATE TYPE order_status AS ENUM ('active', 'completed', 'pending');
 
@@ -82,13 +83,13 @@ func New(connStr string) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
-
+	*/
 	return &Storage{
 		conn: conn,
 	}, nil
 }
 
-func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderNums string) (map[string][]models.Product, error) {
+func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderNums []string) (map[string][]models.Product, error) {
 	const op = "storage.postgres.OrdersGroupedByShelves"
 
 	rows, err := s.conn.Query(ctx, `
@@ -110,7 +111,7 @@ func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderNums string) 
 	JOIN
 		shelves s ON ps.shelve_id = s.id
 	WHERE 
-		o.id IN (`+orderNums+`)
+		o.id IN (`+strings.Join(orderNums, ",")+`)
 	ORDER BY 
 		s.title DESC
 	`)
@@ -152,7 +153,6 @@ func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderNums string) 
 				}
 			}
 		}
-
 	}
 
 	return shelves, nil

@@ -3,13 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"market/internal/models"
 )
 
 type Storage interface {
-	OrdersGroupedByShelves(ctx context.Context, orderNums string) (map[string][]models.Product, error)
+	OrdersGroupedByShelves(ctx context.Context, orderNums []string) (map[string][]models.Product, error)
 }
 
 type Service struct {
@@ -28,7 +27,7 @@ func (s *Service) OrdersGroupedByShelves(orderNums []string) (map[string][]model
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	shelves, err := s.storage.OrdersGroupedByShelves(ctx, strings.Join(orderNums, ","))
+	shelves, err := s.storage.OrdersGroupedByShelves(ctx, orderNums)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}

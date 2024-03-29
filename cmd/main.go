@@ -7,7 +7,7 @@ import (
 	"market/internal/storage/postgres"
 )
 
-const connStr = "postgres://postgres:postgres@localhost:5432/market"
+const connStr = "postgres://postgres:qwerty@localhost:5432/market"
 
 func main() {
 	storage, err := postgres.New(connStr)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"slices"
 	"strings"
 
 	"market/internal/models"
@@ -40,10 +39,10 @@ func (c *Cli) Run() {
 		log.Printf("%s: %w", op, err)
 	}
 
-	for _, p := range shelves {
-		slices.Reverse(p)
-	}
-
+	/* 	for _, p := range shelves {
+	   		slices.Reverse(p)
+	   	}
+	*/
 	fmt.Printf("Страница сборки заказов %s\n\n", strings.Join(orders, ","))
 	for shelveTitle, products := range shelves {
 		fmt.Printf("===Стеллаж %s\n", shelveTitle)
