@@ -10,7 +10,7 @@ import (
 )
 
 type Service interface {
-	OrdersGroupedByShelves(orderNums []string) (map[string][]models.Product, error)
+	OrdersGroupedByShelves(orderNums string) (map[string][]models.Product, error)
 }
 
 type Cli struct {
@@ -26,13 +26,7 @@ func New(service Service) *Cli {
 func (c *Cli) Run() {
 	const op = "cli.Run"
 
-	var orders []string
-
-	if strings.Join(os.Args[:2], " ") == "go run main.go" {
-		orders = append(orders, os.Args[3:]...)
-	} else {
-		orders = append(orders, os.Args[1:]...)
-	}
+	orders := os.Args[1]
 
 	shelves, err := c.service.OrdersGroupedByShelves(orders)
 	if err != nil {
@@ -43,7 +37,7 @@ func (c *Cli) Run() {
 	   		slices.Reverse(p)
 	   	}
 	*/
-	fmt.Printf("Страница сборки заказов %s\n\n", strings.Join(orders, ","))
+	fmt.Printf("Страница сборки заказов %s\n\n", orders)
 	for shelveTitle, products := range shelves {
 		fmt.Printf("===Стеллаж %s\n", shelveTitle)
 		for _, product := range products {

@@ -3,26 +3,26 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
+	"log"
 
 	"market/internal/models"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Storage struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 }
 
 func New(connStr string) (*Storage, error) {
 	const op = "storage.postgres.New"
 
-	conn, err := pgx.Connect(context.Background(), connStr)
+	pool, err := pgxpool.New(context.Background(), connStr)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	err = conn.Ping(context.Background())
+	err = pool.Ping(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -85,75 +85,108 @@ func New(connStr string) (*Storage, error) {
 	}
 	*/
 	return &Storage{
-		conn: conn,
+		conn: pool,
 	}, nil
 }
 
-func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderNums []string) (map[string][]models.Product, error) {
+func (s *Storage) OrdersGroupedByShelves(ctx context.Context, orderIDs []int64) (map[string][]models.Product, error) {
 	const op = "storage.postgres.OrdersGroupedByShelves"
 
-	rows, err := s.conn.Query(ctx, `
-	SELECT 
-		s.title,
-		p.title,
-		p.id,
-		o.id,
-		op.quantity,
-		ps.is_main
-	FROM 
-		orders o
-	JOIN 
-		order_products op ON o.id = op.order_id
-	JOIN 
-		products p ON p.id = op.product_id
-	JOIN 
-		products_shelves ps ON ps.product_id = p.id
-	JOIN
-		shelves s ON ps.shelve_id = s.id
-	WHERE 
-		o.id IN (`+strings.Join(orderNums, ",")+`)
-	ORDER BY 
-		s.title DESC
-	`)
+	shelvesWithOrders := make(map[string][]models.Product)
+
+	for _, orderID := range orderIDs {
+		products, err := s.getProductsInOrder(ctx, orderID)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+
+		for _, product := range products {
+			if _, ok := shelvesWithOrders[product.MainShelf]; !ok {
+				shelvesWithOrders[product.MainShelf] = make([]models.Product, 0)
+			}
+
+			shelvesWithOrders[product.MainShelf] = append(shelvesWithOrders[product.MainShelf], product)
+		}
+	}
+
+	return shelvesWithOrders, nil
+}
+
+func (s *Storage) getProductsInOrder(ctx context.Context, orderID int64) ([]models.Product, error) {
+	const op = "storage.postgres.getProductsInOrder"
+
+	var products []models.Product
+
+	rows, err := s.conn.Query(ctx, `SELECT product_id, quantity FROM order_products WHERE order_id=$1`, orderID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	defer rows.Close()
 
-	shelves := make(map[string][]models.Product)
 	for rows.Next() {
-		var shelveTitle, productTitle string
-		var productID, orderID, productCount int64
-		var isMain bool
+		var productID, quantity int64
+		if err := rows.Scan(&productID, &quantity); err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
 
-		err := rows.Scan(&shelveTitle, &productTitle, &productID, &orderID, &productCount, &isMain)
+		product, err := s.getProductInfo(ctx, productID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", op, err)
 		}
 
+		product.Count = quantity
+
+		product.OrderID = orderID
+
+		product.ID = productID
+
+		products = append(products, product)
+	}
+
+	return products, nil
+}
+
+func (s *Storage) getProductInfo(ctx context.Context, productID int64) (models.Product, error) {
+	const op = "storage.postgres.getProductInfo"
+
+	var product models.Product
+
+	err := s.conn.QueryRow(ctx, `SELECT title FROM products WHERE id=$1`, productID).Scan(&product.Title)
+	if err != nil {
+		return product, fmt.Errorf("%s: %w", op, err)
+	}
+
+	rows, err := s.conn.Query(ctx, `SELECT shelve_id, is_main FROM products_shelves WHERE product_id=$1`, productID)
+	if err != nil {
+		return product, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var shelveID int64
+		var isMain bool
+		if err := rows.Scan(&shelveID, &isMain); err != nil {
+			return product, fmt.Errorf("%s: %w", op, err)
+		}
+
 		if isMain {
-			if _, ok := shelves[shelveTitle]; !ok {
-				shelves[shelveTitle] = make([]models.Product, 0)
-			}
-
-			prod := models.Product{
-				ID:      productID,
-				Title:   productTitle,
-				OrderID: orderID,
-				Count:   productCount,
-			}
-
-			shelves[shelveTitle] = append(shelves[shelveTitle], prod)
+			product.MainShelf = s.shelveNameByID(ctx, shelveID)
 		} else {
-			for _, p := range shelves {
-				for i := 0; i < len(p); i++ {
-					if p[i].Title == productTitle {
-						p[i].NonMainShelves = append(p[i].NonMainShelves, shelveTitle)
-					}
-				}
-			}
+			product.NonMainShelves = append(product.NonMainShelves, s.shelveNameByID(ctx, shelveID))
 		}
 	}
 
-	return shelves, nil
+	return product, nil
+}
+
+func (s *Storage) shelveNameByID(ctx context.Context, shelveID int64) string {
+	const op = "storage.postgres.shelveNameByID"
+
+	var title string
+	err := s.conn.QueryRow(ctx, `SELECT title FROM shelves WHERE id=$1`, shelveID).Scan(&title)
+	if err != nil {
+		log.Printf("%s: %v\n", op, err)
+	}
+
+	return title
 }
